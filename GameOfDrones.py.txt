@@ -1,0 +1,462 @@
+import sys
+import math
+from copy import deepcopy
+from functools import reduce
+from itertools import product
+from time import time
+
+class Drone:
+    def __init__(self, team, index):
+        self.x = None
+        self.y = None
+        self.p_x = None
+        self.p_y = None
+        self.index = index
+        self.team = team
+        self.direction = None
+        self.distances = dict(zip(zones, [[None, None] for i in range(z)]))
+        self.distances_list = []
+        self.closest_zone = None
+        self.moving = False
+        self.inside = None
+
+    def __repr__(self):
+        return f'Drone team:{self.team} index: {self.index}.'
+
+    def update(self):
+        self.x = p_cor[self.team][self.index][0]
+        self.y = p_cor[self.team][self.index][1]
+        self.update_distances()
+        self.closest_zone = min(self.distances.items(), key=lambda x: x[1][0])[0]
+        self.update_direction()
+        self.moving = not(self.x == self.p_x and self.y == self.p_y)
+        self.inside = None
+        for zone in zones:
+            if dist(self, zone) <= 100:
+                self.inside = zone
+
+    def update_prev(self):
+        self.p_x = self.x
+        self.p_y = self.y
+        for zone in zones:
+            self.distances[zone][1] = self.distances[zone][0]
+    
+    def update_direction(self):
+        if self.p_x != None and self.p_y != None:
+            d_x = self.x - self.p_x
+            d_y = self.y - self.p_y
+            if not d_x and not d_y:
+                self.direction = None
+                return
+            try:
+                m = d_y / d_x
+            except:
+                m = 2**32 - 1
+            n = self.y - m * self.x
+            options = [z for z in self.distances if self.distances[z][0] < self.distances[z][1]]
+            #debug(f'Directions For Player {self.team} Drone {self.index}:')
+            #debug(f'  Options: {[z.index for z in options]}.')
+            if not options:
+                return
+            new_options = options[:]
+            for zone in zones:
+                if abs(zone.y - ((m * zone.x) + n)) > 5:
+                    try:
+                        new_options.remove(zone)
+                    except ValueError:
+                        pass
+            #debug(f'  Exact: {[z.index for z in new_options]}.')
+            if new_options:
+                self.direction = min(new_options, key=lambda x: dist(x, self))
+            else:
+                self.direction = min(options, key=lambda x: (abs(-m * x.x + x.y - n)) / math.sqrt((m ** 2) + 1))
+            #debug(f'  Final: {type(self.direction).__name__} {self.direction.index}.')
+            
+    def update_distances(self):
+        #debug(f'DISTANCES Player: {self.team}.  index: {self.index}')
+        for zone in self.distances.keys():
+            self.distances[zone][0] = dist(self, zone)
+            #debug(f'  Zone {zone.index}-  Current: {self.distances[zone][0]}   <=>  Previous: {self.distances[zone][1]}')
+        
+class Zone:
+    def __init__(self, x, y, index):
+        self.x = x
+        self.y = y
+        self.control = -1
+        self.index = index
+        self.attacking = []
+        self.inside = []
+        self.inside_count = dict(zip(range(p), [0]*p))
+        self.attacking_count = dict(zip(range(p), [0]*p))
+        self.distances = {}
+        self.inside_attacking = []
+        self.inside_attacking_count = dict(zip(range(p), [0]*p))
+    
+    def __repr__(self):
+        return f'Zone {self.index}.'
+
+    def update(self):
+        self.inside_count = dict(zip(range(p), [0]*p))
+        self.attacking_count = dict(zip(range(p), [0]*p))
+        self.inside_attacking_count = dict(zip(range(p), [0]*p))
+        self.inside = list(filter(lambda x: dist(self, x) <= 100, drones))
+        for drone in self.inside:
+            self.inside_count[drone.team] += 1
+        temp = [k for k,v in self.inside_count.items() if v == max(self.inside_count.values())]
+        if len(temp) == 1:
+            self.control = temp[0]   
+        if turn > 1:
+            self.update_attacking()
+            self.update_distances()
+            self.inside_attacking = self.inside + list(set(self.attacking) - set(self.inside))
+            for drone in self.inside_attacking:
+                self.inside_attacking_count[drone.team] += 1
+            #debug(f'Zone {self.index} inside and attacking: {self.inside_attacking_count}.')
+
+    def update2(self):
+        self.update_attacking()
+        self.update_distances()
+        self.inside_attacking = self.inside + list(set(self.attacking) - set(self.inside))
+        for drone in self.inside_attacking:
+            self.inside_attacking_count[drone.team] += 1
+        #debug(f'Zone {self.index} inside and attacking: {self.inside_attacking_count}.')
+
+        
+
+    def update_distances(self):
+        for drone in drones:
+            self.distances[drone] = dist(self, drone)
+
+    def update_attacking(self):
+        temp_attacking = list(filter(lambda x: x.direction != None and x.inside == None, drones))
+        self.attacking = list(filter(lambda x: x.direction.index == self.index, temp_attacking))
+        for drone in self.attacking:
+            self.attacking_count[drone.team] += 1
+        #debug(f'Zone {self.index} Attacked By: {[(x.index, x.team) for x in self.attacking]}')
+        
+class Player:
+    def __init__(self, i):
+        self.id = i
+        self.points = 0
+        self.drones =  []
+        self.zones = []
+
+    def __repr__(self):
+        return f'Player {self.id}.'
+
+    def update(self):
+        self.drones = list(filter(lambda x: x.team == self.id, drones))
+        self.zones = list(filter(lambda x: x.control == self.id, zones))
+        self.points += len(self.zones)
+        debug(f'Player {self.id} Points: {self.points}.')
+
+def new_max(l):
+    if l:
+        return max(l)
+    else:
+        return None
+def dist(obj1, obj2, turns=False):
+    d = math.sqrt(((obj1.x-obj2.x)**2) + ((obj1.y-obj2.y)**2))
+    if turns:
+        d = dist_to_turns(d)
+    return d
+    
+def dist_to_turns(d):
+    return math.ceil(d / 100)
+
+def towards(obj1, obj2, n):
+    d = dist(obj1, obj2)
+    if d <= n:
+        return obj1.x, obj1.y
+    g = n / (d - n)
+    x = math.floor((obj1.x + g * obj2.x) / (g + 1))
+    y = math.floor((obj1.y + g * obj2.y) / (g + 1))
+    return x, y
+    
+def debug(s):
+    sys.stderr.write(str(s)+'\n')
+    
+def simulation(old_sailing, turns=None):
+    if turns is None:
+        debug(str(old_sailing))
+        dists = list(map(lambda x: dist(x[0], x[1]), old_sailing.items()))
+        turns = math.ceil(max(dists) / 100)
+    s_zones = deepcopy(zones)
+    s_players = deepcopy(players)
+    s_drones = []
+    for player in s_players:
+        s_drones += player.drones
+    debug(len(s_drones))
+    sailing = {}
+    for drone, zone in old_sailing.items():
+        new_drone = list(filter(lambda x: x.index == drone.index, s_drones))[0]
+        new_zone = list(filter(lambda x: x.index == zone.index, s_zones))[0]
+        sailing[new_drone] = new_zone
+    debug(sailing)
+    points = {p.id: p.points for p in s_players}
+    for turn in range(turns):
+        p_cor = []
+        for i in range(p):
+            mat = [[] for j in range(d)] 
+            player = list(filter(lambda x: x.id == i, s_players))[0]
+            for j in range(d):
+                drone = list(filter(lambda x: x.index == j, player.drones))[0]
+                if i == my_id:
+                    dx, dy = towards(drone, sailing[drone], 100)
+                else:
+                    dx, dy = towards(drone, drone.direction, 100)
+                mat[j] = [dx,dy]
+            p_cor.append(mat)
+        list(map(lambda x: x.update(), s_zones))
+        list(map(lambda x: x.update(), s_drones))
+        list(map(lambda x: x.update2(), s_zones))
+        list(map(lambda x: x.update(), s_players))
+        s_me = list(filter(lambda x: x.id == my_id, s_players))[0]
+        s_enemies = list(filter(lambda x: x.id != my_id, s_players))
+        list(map(lambda x: x.update_prev(), drones))
+    new_points = {p.id: p.points for p in s_players}
+    points_delta = {p.id: new_points[p.id]-points[p.id] for p in s_players}
+    return points_delta
+
+def basic_tactic():
+    sailing = {}
+    my_dists = {d:d.distances for d in me.drones}
+    new_dists = {}
+    for drone, distances in my_dists.items():
+        for zone, distance in distances.items():
+            new_dists[drone, zone] = [distance[0]]
+    sorted_dists = sorted(new_dists, key=new_dists.get)
+    #debug(f'SORTED DISTS: {[(type(x[0]).__name__+str(x[0].index), type(x[1]).__name__+str(x[1].index)) for x in sorted_dists]}')
+    temp_zones = zones[:]
+    temp_dists = sorted_dists[:]
+    while len(sorted_dists) > 0:
+
+        sailing[temp_dists[0][0]] = temp_dists[0][1]
+        temp_drone_index = temp_dists[0][0].index
+        temp_zone_index = temp_dists[0][1].index
+        #debug(f'Drone {temp_drone_index} >>> Zone {temp_zone_index}')
+        sorted_dists = list(filter(lambda x: x[0].index != temp_drone_index, sorted_dists))
+        #debug(f'FULL: {len(sorted_dists)}')
+        temp_dists = list(filter(lambda x: x[0].index != temp_drone_index, temp_dists))
+        temp_dists = list(filter(lambda x: x[1].index != temp_zone_index, temp_dists))
+        #debug(f'TEMP: {len(temp_dists)}  -  {[(type(x[0]).__name__+str(x[0].index), type(x[1]).__name__+str(x[1].index)) for x in temp_dists]}')
+        temp_zones = list(filter(lambda x: x.index != temp_zone_index, temp_zones))
+        #debug(f'TEMP ZONES: {[z.index for z in temp_zones]}')
+        if not temp_zones:
+            temp_zones = zones[:]
+            temp_dists = sorted_dists[:]
+    return sailing
+
+def point_tactic():
+    sailing = {}
+    options_points = {}
+    options_list = []
+    for drone in me.drones:
+        options_list.append(list(product([drone], zones)))
+    sailing_options = []
+    debug(time()-turn_time_start)
+    for option in list(product(*options_list)):
+        opt = {}
+        for per in option:
+            opt[per[0]] = per[1]
+        sailing_options.append(opt)
+    for option in sailing_options:
+        debug(time()-turn_time_start)
+        options_points[option] = simulation(option)
+    best = max(list(map(lambda x: (x[0], x[1][my_id] - max(dict(filter(lambda y: y[0] != my_id, x[1].items())).values())), options_points.items())), key=lambda x: x[1])[0]
+    debug(best)
+    return best        
+            
+def smart_tactic():
+    sailing = {}
+    zone_effort = dict(zip(zones, [None for i in range(z)]))
+    temp_drones = me.drones[:]
+    temp_zones = zones[:]
+    while True:
+        #making the dictionary zone_effort {zone: [drone_count, turns, sorted_drones, worth]} 
+        for zone in temp_zones[:]:
+            enemy_drone_count = max(list(filter(lambda x: x[0] != my_id, zone.inside_attacking_count.items())), key=lambda x: x[1])[1]
+            debug(enemy_drone_count)
+            sorted_drones = sorted(temp_drones, key=lambda x: dist(x, zone))
+            #drones count
+            drones_turns = [[] for x in range(p)]
+            possible_attacking = list(filter(lambda x: x.team != my_id, zone.inside_attacking)) + sorted_drones[:enemy_drone_count + 1]
+            for drone in possible_attacking:
+                if drone in zone.inside:
+                    t = 0
+                else:
+                    t = dist(drone, zone, True)
+                drones_turns[drone.team].append(t)
+            for i in range(p):
+                drones_turns[i] = sorted(drones_turns[i])
+            for i in range(len(min(drones_turns, key=len))):
+                temp = [drones_turns[x][i] for x in range(p)]
+                for team in range(p):
+                    if temp.count(drones_turns[team][i]) > 1:
+                        drones_turns[team][i] = None
+            for t in range(p):
+                drones_turns[t] = [x for x in drones_turns[t] if x is not None]
+            debug(f'{zone}: {drones_turns}')
+            if not enemy_drone_count:
+                drone_count = 1
+            elif not any(drones_turns) or not sum([sum(x) for x in drones_turns]):
+                
+                if zone.control == my_id:
+                    drone_count = enemy_drone_count
+                else:
+                    debug('FLAG 2')
+                    drone_count = enemy_drone_count + 1
+            elif min([j for j in [(new_max(drones_turns[i]), i) for i in range(p)] if None not in j], key=lambda x: x[0])[1] == my_id and zone.control in [-1, my_id]:
+                drone_count = enemy_drone_count
+            else:
+                drone_count = enemy_drone_count + 1
+            if len(temp_drones) < drone_count:
+                temp_zones.remove(zone)
+                zone_effort.pop(zone)
+                continue
+            #max turns to zone
+            if sorted_drones[drone_count-1] in zone.inside:
+                turns = 0
+            else:
+                turns = dist(sorted_drones[drone_count-1], zone, True)
+            #zone worth
+            if zone.control == my_id:
+                if not enemy_drone_count:
+                    worth = 1
+                else:
+                    worth = 0.5
+            elif zone.control == -1:
+                worth = 1
+            else:
+                worth = 0.5
+            zone_effort[zone] = [drone_count, turns, sorted_drones, worth]
+            if zone.index == z-1:
+                for opt in zone_effort:
+                    debug(opt)
+                    debug(f'    DRONE COUNT: {zone_effort[opt][0]}')
+                    debug(f'    TURNS FOR furthest TO ZONE: {zone_effort[opt][1]}')
+                    debug(f'    SORTED DRONES: {[dr.index for dr in zone_effort[opt][2]]}')
+                    debug(f'    WORTH: {zone_effort[opt][3]}')
+        #choosing the best zone option
+        filtered_options = list(filter(lambda x: x[1][0] <= len(temp_drones) and x[1][1] >= 0, zone_effort.items()))
+        if not filtered_options:
+            for drone in temp_drones:
+                debug(drone)
+                sailing[drone] = drone.closest_zone
+            break
+        best_option = min(filtered_options, key=lambda x: x[1][0]*x[1][1]*x[1][3])
+        debug(f'Zone: {best_option[0].index}.  Drones: {list(map(lambda x: x.index ,best_option[1][2][:best_option[1][0]]))}.')
+        temp_zones.remove(best_option[0])
+        zone_effort.pop(best_option[0])
+        for drone in best_option[1][2][:best_option[1][0]]:
+            sailing[drone] = best_option[0]
+            temp_drones.remove(drone)
+        if not temp_drones:
+            break
+        if not temp_zones:
+            for drone in temp_drones:
+                sailing[drone] = drone.closest_zone
+            break
+    return sailing
+    
+
+def get_drone(index, team):
+    #debug(f'index: {index}   team: {team}')
+    return list(filter(lambda x: x.team == team and x.index == index, drones))[0]
+
+
+
+
+
+def sail(sailing):
+    final_sailing = [z[1] for z in sorted(sailing.items(), key=lambda x: x[0].index)]
+    count = 0
+    for zone in final_sailing:
+        a, b =towards(get_drone(count, my_id), zone, 100)
+        debug(f'Drone {count} sailing towards {type(zone).__name__} {zone.index}. dist: {dist(get_drone(count, my_id), zone)}. x: {zone.x}  y: {zone.y}  x1: {a}  y1: {b}.')
+        print(f'{a} {b}')
+        count+=1
+# Auto-generated code below aims at helping you parse
+# the standard input according to the problem statement.
+
+# p: number of players in the game (2 to 4 players)
+# my_id: ID of your player (0, 1, 2, or 3)
+# d: number of drones in each team (3 to 11)
+# z: number of zones on the map (4 to 8)
+z_cor = []
+p_cor = []
+z_ctrl = []
+
+
+p, my_id, d, z = [int(i) for i in input().split()]
+for i in range(z):
+    # x: corresponds to the position of the center of a zone. A zone is a circle with a radius of 100 units.
+    x, y = [int(j) for j in input().split()]
+    z_cor.append ([x,y])
+
+debug(f'NUMBER OF PLAYERS: {p}\nMY ID: {my_id}\nNUMBER OF DRONES: {d}\nNUMBER OF ZONES: {z}\nZONES COORDINATES: {z_cor}\n')
+
+zones = [Zone(z_cor[i][0], z_cor[i][1], i) for i in range(z)]
+drones = [Drone(t, i) for i in range(d) for t in range(p)]
+players = [Player(i) for i in range(p)]
+turn = 0
+deb = False
+# game loop
+while True:
+    z_ctrl = []
+    p_cor = []
+    turn_time_start = time()
+    turn+=1
+    for i in range(z):
+        tid = int(input())  # ID of the team controlling the zone (0, 1, 2, or 3) or -1 if it is not controlled. The zones are given in the same order as in the initialization.
+        z_ctrl.append(tid)
+    for i in range(p):
+        mat = [[] for j in range(d)] 
+        for j in range(d):
+            # dx: The first D lines contain the coordinates of drones of a player with the ID 0, the following D lines those of the drones of player 1, and thus it continues until the last player.
+            dx, dy = [int(k) for k in input().split()]
+            mat[j] = [dx,dy]
+        p_cor.append(mat)    # ( player ID, drone ID, X, Y )
+    debug(f'---------- turn {turn} ----------')
+    """
+    debug(f'ZONE CONTROL: {z_ctrl}')
+    c = 0
+    for pl in p_cor:
+        debug(f'PLAYER: {c}')
+        c+=1
+        dc = 0
+        for dd in pl:
+            debug(f'  DRONE: {dc}')
+            dc += 1
+            debug(f'    X: {dd[0]}  Y: {dd[1]}')
+    """
+    list(map(lambda x: x.update(), drones))
+    list(map(lambda x: x.update(), zones))
+    """
+    if turn > 1:
+        list(map(lambda x: x.update2(), zones))
+    """
+    list(map(lambda x: x.update(), players))
+    me = list(filter(lambda x: x.id == my_id, players))[0]
+    enemies = list(filter(lambda x: x.id != my_id, players))
+    if turn == 1:
+        sail(basic_tactic())
+    else:
+        sail(smart_tactic())
+    list(map(lambda x: x.update_prev(), drones))
+    
+    
+    
+    if deb:
+        for enemy in enemies:
+            debug(f'\nENEMY: {enemy.id}\n')
+            for drone in enemy.drones:
+                debug(f'  DRONE: {drone.__dict__}\n')
+        debug(f'\n\nME: {me.id}\n')
+        for drone in me.drones:
+            debug(f'  DRONE: {drone.__dict__}\n')
+    
+        # output a destination point to be reached by one of your drones. The first line corresponds to the first of your drones that you were provided as input, the next to the second, etc.
+        #print "x" "y"
+        
+
