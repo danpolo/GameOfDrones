@@ -7,15 +7,14 @@ from time import time
 
 class Drone:
     def __init__(self, team, index):
+        self.index = index
+        self.team = team
         self.x = None
         self.y = None
         self.p_x = None
         self.p_y = None
-        self.index = index
-        self.team = team
         self.direction = None
         self.distances = dict(zip(zones, [[None, None] for i in range(z)]))
-        self.distances_list = []
         self.closest_zone = None
         self.moving = False
         self.inside = None
@@ -99,7 +98,7 @@ class Zone:
         self.inside_count = dict(zip(range(p), [0]*p))
         self.attacking_count = dict(zip(range(p), [0]*p))
         self.inside_attacking_count = dict(zip(range(p), [0]*p))
-        self.inside = list(filter(lambda x: dist(self, x) <= 100, drones))
+        self.inside = list(filter(lambda d: dist(self, d) <= 100, drones))
         for drone in self.inside:
             self.inside_count[drone.team] += 1
         temp = [k for k,v in self.inside_count.items() if v == max(self.inside_count.values())]
@@ -119,7 +118,7 @@ class Zone:
             self.distances[drone] = dist(self, drone)
 
     def update_attacking(self):
-        temp_attacking = list(filter(lambda x: x.direction != None and x.inside == None, drones))
+        temp_attacking = filter(lambda x: x.direction != None and x.inside == None, drones)
         self.attacking = list(filter(lambda x: x.direction.index == self.index, temp_attacking))
         for drone in self.attacking:
             self.attacking_count[drone.team] += 1
@@ -146,6 +145,7 @@ def new_max(l):
         return max(l)
     else:
         return None
+
 def dist(obj1, obj2, turns=False):
     d = math.sqrt(((obj1.x-obj2.x)**2) + ((obj1.y-obj2.y)**2))
     if turns:
@@ -167,48 +167,6 @@ def towards(obj1, obj2, n):
 def debug(s):
     sys.stderr.write(str(s)+'\n')
     
-def simulation(old_sailing, turns=None):
-    if turns is None:
-        debug(str(old_sailing))
-        dists = list(map(lambda x: dist(x[0], x[1]), old_sailing.items()))
-        turns = math.ceil(max(dists) / 100)
-    s_zones = deepcopy(zones)
-    s_players = deepcopy(players)
-    s_drones = []
-    for player in s_players:
-        s_drones += player.drones
-    debug(len(s_drones))
-    sailing = {}
-    for drone, zone in old_sailing.items():
-        new_drone = list(filter(lambda x: x.index == drone.index, s_drones))[0]
-        new_zone = list(filter(lambda x: x.index == zone.index, s_zones))[0]
-        sailing[new_drone] = new_zone
-    debug(sailing)
-    points = {p.id: p.points for p in s_players}
-    for turn in range(turns):
-        p_cor = []
-        for i in range(p):
-            mat = [[] for j in range(d)] 
-            player = list(filter(lambda x: x.id == i, s_players))[0]
-            for j in range(d):
-                drone = list(filter(lambda x: x.index == j, player.drones))[0]
-                if i == my_id:
-                    dx, dy = towards(drone, sailing[drone], 100)
-                else:
-                    dx, dy = towards(drone, drone.direction, 100)
-                mat[j] = [dx,dy]
-            p_cor.append(mat)
-        list(map(lambda x: x.update(), s_zones))
-        list(map(lambda x: x.update(), s_drones))
-        list(map(lambda x: x.update2(), s_zones))
-        list(map(lambda x: x.update(), s_players))
-        s_me = list(filter(lambda x: x.id == my_id, s_players))[0]
-        s_enemies = list(filter(lambda x: x.id != my_id, s_players))
-        list(map(lambda x: x.update_prev(), drones))
-    new_points = {p.id: p.points for p in s_players}
-    points_delta = {p.id: new_points[p.id]-points[p.id] for p in s_players}
-    return points_delta
-
 def basic_tactic():
     sailing = {}
     my_dists = {d:d.distances for d in me.drones}
@@ -238,26 +196,6 @@ def basic_tactic():
             temp_dists = sorted_dists[:]
     return sailing
 
-def point_tactic():
-    sailing = {}
-    options_points = {}
-    options_list = []
-    for drone in me.drones:
-        options_list.append(list(product([drone], zones)))
-    sailing_options = []
-    debug(time()-turn_time_start)
-    for option in list(product(*options_list)):
-        opt = {}
-        for per in option:
-            opt[per[0]] = per[1]
-        sailing_options.append(opt)
-    for option in sailing_options:
-        debug(time()-turn_time_start)
-        options_points[option] = simulation(option)
-    best = max(list(map(lambda x: (x[0], x[1][my_id] - max(dict(filter(lambda y: y[0] != my_id, x[1].items())).values())), options_points.items())), key=lambda x: x[1])[0]
-    debug(best)
-    return best        
-            
 def smart_tactic():
     sailing = {}
     zone_effort = dict(zip(zones, [None for i in range(z)]))
@@ -424,7 +362,7 @@ while True:
     list(map(lambda x: x.update(), drones))
     list(map(lambda x: x.update(), zones))
     list(map(lambda x: x.update(), players))
-    me = list(filter(lambda x: x.id == my_id, players))[0]
+    me = next(filter(lambda x: x.id == my_id, players))
     enemies = list(filter(lambda x: x.id != my_id, players))
     if turn == 1:
         sail(basic_tactic())
