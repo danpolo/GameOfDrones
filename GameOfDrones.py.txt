@@ -112,15 +112,6 @@ class Zone:
             for drone in self.inside_attacking:
                 self.inside_attacking_count[drone.team] += 1
             #debug(f'Zone {self.index} inside and attacking: {self.inside_attacking_count}.')
-
-    def update2(self):
-        self.update_attacking()
-        self.update_distances()
-        self.inside_attacking = self.inside + list(set(self.attacking) - set(self.inside))
-        for drone in self.inside_attacking:
-            self.inside_attacking_count[drone.team] += 1
-        #debug(f'Zone {self.index} inside and attacking: {self.inside_attacking_count}.')
-
         
 
     def update_distances(self):
@@ -432,10 +423,6 @@ while True:
     """
     list(map(lambda x: x.update(), drones))
     list(map(lambda x: x.update(), zones))
-    """
-    if turn > 1:
-        list(map(lambda x: x.update2(), zones))
-    """
     list(map(lambda x: x.update(), players))
     me = list(filter(lambda x: x.id == my_id, players))[0]
     enemies = list(filter(lambda x: x.id != my_id, players))
